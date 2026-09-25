@@ -38,3 +38,7 @@ Plan: `Docs/Plan/plan.txt`. All commands: `source Scripts/env.sh` first.
 1. (Submitted, chained automatically.) If smoke test fails, dependent arrays are cancelled (--kill-on-invalid-dep); fix and resubmit.
 2. `Rscript --vanilla Scripts/validate_favor_gds.R essential|full` -> `Docs/Logs/favor_*_gds_manifest.tsv`; compare with plan section 8.
 3. rsID: `sbatch --array=22 Scripts/enhance_full_rsid.slurm`, then 1-21 (optionally snapshot `Data/gds/full` first).
+
+## Dataverse upload (pending)
+- API token stored in `Secrets/dataverse_api_token` (mode 600, dir 700, git-ignored). Never commit or echo it.
+- Target dataset/collection: to be confirmed by user before upload.
