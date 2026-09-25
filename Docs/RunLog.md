@@ -22,7 +22,7 @@ Plan: `Docs/Plan/plan.txt`. All commands: `source Scripts/env.sh` first.
 - Validation: plan's `get.attr.gdsn(gds$root, "FileFormat")` is invalid (function takes one arg); uses `get.attr.gdsn(gds$root)$FileFormat`. Removed on.exit double-close. Manifest also records variant count.
 - Downloads run as Slurm arrays (`download_favor.slurm`, partition shared, %6), with retries and tar -tzf / CSV check per archive (member lists saved as `*.members`).
 - Conversion on partition `xlin` (30-day limit) since Full needs up to 4 days; `--mem` passed on sbatch command line.
-- rsID step runs on `bigmem` 400G (`enhance_full_rsid.slurm`); frees intermediate vectors early.
+- rsID step runs on `sapphire` 400G (bigmem requires >1000G); adds post-check that Full non-empty rsID count equals Essential (`enhance_full_rsid.slurm`); frees intermediate vectors early.
 
 ## Job history
 | Date | Job | What |
@@ -33,11 +33,17 @@ Plan: `Docs/Plan/plan.txt`. All commands: `source Scripts/env.sh` first.
 | 2026-09-25 | 48370815 | smoke test convert Full chr22 (afterok download) |
 | 2026-09-25 | 48370943 | convert Essential chr1-21 (afterok 48370814 + aftercorr 48370541) |
 | 2026-09-25 | 48370972 | convert Full chr1-21 (afterok 48370815 + aftercorr 48370542) |
+| 2026-09-25 | 48378318 | validate both, tag pre_rsid (afterok all conversions) |
+| 2026-09-25 | 48378325 | backup Full GDS -> Data/gds/full_pre_rsid (afterok 48378318) |
+| 2026-09-25 | 48378360 | rsID smoke test chr22, sapphire 400G (afterok backup) |
+| 2026-09-25 | 48378361 | rsID chr1-21 %4 (afterok 48378360) |
+| 2026-09-25 | 48378362 | validate both, tag post_rsid, mail on END/FAIL (afterok 48378361) |
 
 ## Remaining steps
-1. (Submitted, chained automatically.) If smoke test fails, dependent arrays are cancelled (--kill-on-invalid-dep); fix and resubmit.
-2. `Rscript --vanilla Scripts/validate_favor_gds.R essential|full` -> `Docs/Logs/favor_*_gds_manifest.tsv`; compare with plan section 8.
-3. rsID: `sbatch --array=22 Scripts/enhance_full_rsid.slurm`, then 1-21 (optionally snapshot `Data/gds/full` first).
+Whole pipeline is chained in Slurm; any failure cancels downstream jobs (--kill-on-invalid-dep). Check with
+`sacct -u $USER -S 2026-09-25 --name=favor-dl,favor-gds-ess,favor-gds-full,favor-validate,favor-backup,favor-rsid -X`.
+1. Review with user: manifests `Docs/Logs/favor_*_gds_manifest_{pre,post}_rsid.tsv` vs plan section 8; logs in Docs/Logs.
+2. Only after user approval: upload to Harvard Dataverse (target not yet chosen). Then delete Data/gds/full_pre_rsid if not needed.
 
 ## Dataverse upload (pending)
 - API token stored in `Docs/Secret/dataverse_api_token` (mode 600, dir 700, git-ignored). Never commit or echo it.

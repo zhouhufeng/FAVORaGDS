@@ -2,9 +2,10 @@
 # Step 9: run after BOTH Essential and Full conversions validate. Updates Full GDS in place.
 # Smoke test: sbatch --array=22 enhance_full_rsid.slurm ; then: sbatch --array=1-21 enhance_full_rsid.slurm
 #SBATCH --job-name=favor-rsid
-#SBATCH --partition=bigmem
+#SBATCH --partition=sapphire
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=400G
+#SBATCH --array=1-22%4
 #SBATCH --time=3-00:00:00
 #SBATCH --output=/n/holystore01/LABS/xlin/Lab/zhouhufeng/projects/Computing/FAVORaGDS/Docs/Logs/enhance/favor-rsid-%A_%a.out
 
