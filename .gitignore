@@ -1,0 +1,5 @@
+# Large data and installed software stay local
+Data/
+Scripts/R_libs/
+Scripts/packages/
+Docs/Logs/

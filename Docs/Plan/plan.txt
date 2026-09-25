@@ -1,0 +1,495 @@
+# FAVOR tar.gz to GDS: Execution Runbook
+
+**Date:** Sept 2026
+
+This runbook converts the public GRCh38/hg38 FAVOR Essential and FAVOR Full CSV tar.gz archives to one SeqArray GDS file per autosome. It is intended to be executed on a separate Linux/HPC machine. The converter is **`GDSAnnotator::seqToGDS_FAVOR_tar()`**; it reads CSV members directly from each `.tar.gz` file, so do not extract the archives.
+
+The documented results cover chromosomes 1-22. The code supports `X`, `XY`, and `Y` if matching archives are obtained, but their file IDs and expected sizes are not included here.
+
+## 1. Requirements and capacity
+
+Use Linux with `bash`, GNU `tar`, `wget` (or `curl`), and a working R installation (R >= 4.0). The packages below compile native code, so a C/C++ toolchain plus development headers for zlib, bzip2, xz/lzma, curl, and libxml2 may be needed. On a Slurm cluster, run the package installation in an interactive or build node as required by local policy.
+
+Do not download both datasets unless enough durable storage is available. The observed archives and GDS files in the reference run occupy approximately:
+
+| Dataset | Downloaded tar.gz files | Generated GDS files | Combined retained storage |
+| --- | ---: | ---: | ---: |
+| Essential (Chr1-22) | 370.49 GiB | 94.05 GiB | 464.54 GiB |
+| Full (Chr1-22) | 633.13 GiB | 200.39 GiB | 833.52 GiB |
+
+Conversion creates an output file while retaining its input. Reserve additional temporary headroom and use a filesystem that supports files larger than 60 GB. The reference Slurm jobs requested 48 GB per Essential chromosome and 64 GB per Full chromosome; use at least those settings initially and adjust only after observing local memory usage.
+
+### Reference conversion runtime
+
+The following wall-clock runtimes were measured from the September 2026 `seqToGDS_FAVOR_tar()` logs. They exclude archive download time and queue wait time. A concurrent Slurm array completes when its slowest chromosome completes.
+
+| Dataset | Per-chromosome runtime range (hours) | Mean per-chromosome runtime (hours) | Observed concurrent-array wall time (hours) | Slowest chromosome |
+| --- | ---: | ---: | ---: | --- |
+| Essential (Chr1-22) | 1.53-14.33 | 6.23 | 14.33 | Chr2 |
+| Full (Chr1-22) | 4.17-50.70 | 19.19 | 50.70 | Chr2 |
+
+Use a Slurm time limit of four days for Full conversion. Runtime can vary with filesystem throughput, CPU availability, and cluster contention.
+
+## 2. Create a clean work area
+
+Before executing any command, obtain from the user an absolute `WORKDIR` on a project filesystem with sufficient capacity. Do not infer, invent, or automatically choose this path. It must not be a quota-limited home directory. Set `R_LIBS_USER` to a directory writable by the execution user.
+
+```bash
+export WORKDIR="<absolute path supplied by the user>"
+export R_LIBS_USER="$WORKDIR/R_libs"
+export TAR=/usr/bin/tar
+mkdir -p "$WORKDIR/tar/essential" "$WORKDIR/tar/full" \
+  "$WORKDIR/gds/essential" "$WORKDIR/gds/full" "$R_LIBS_USER"
+cd "$WORKDIR"
+```
+
+## 3. Install the required R packages
+
+Prefer the specified `gdsfmt` and `SeqArray` source versions from Bioconductor devel. If either archive is no longer available, download the current Bioconductor devel version only when it is newer than the specified version. Clone GDSAnnotator from its public GitHub repository. This requires `git` in addition to the software listed above.
+
+| Input | Reference location |
+| --- | --- |
+| gdsfmt source archive | `https://www.bioconductor.org/packages/devel/bioc/src/contrib/gdsfmt_1.49.8.tar.gz` |
+| SeqArray source archive | `https://www.bioconductor.org/packages/devel/bioc/src/contrib/SeqArray_1.53.2.tar.gz` |
+| GDSAnnotator source repository | `https://github.com/zhengxwen/GDSAnnotator` |
+
+The package order matters: install `gdsfmt` first, then `SeqArray`, then `GDSAnnotator`. The GitHub GDSAnnotator repository supplies the required `seqToGDS_FAVOR_tar()` implementation. The helper below first checks the requested archive URL. If it is unavailable, it reads the current version from the Bioconductor devel `PACKAGES` index and rejects an equal or older fallback.
+
+```bash
+export R_LIBS_USER="$WORKDIR/R_libs"
+mkdir -p "$WORKDIR/packages"
+cd "$WORKDIR/packages"
+
+BIOC_DEVEL="https://www.bioconductor.org/packages/devel/bioc/src/contrib"
+download_bioc_source() {
+    package=$1
+    requested=$2
+    archive="${package}_${requested}.tar.gz"
+
+    if wget --spider -q "$BIOC_DEVEL/$archive"; then
+        wget --continue "$BIOC_DEVEL/$archive" >&2
+    else
+        available=$(wget -qO- "$BIOC_DEVEL/PACKAGES" | awk -v package="$package" '
+            $0 == "Package: " package { found=1; next }
+            found && /^Version: / { sub(/^Version: /, ""); print; exit }
+            found && /^$/ { exit }
+        ')
+        [[ -n "$available" ]] || { echo "No devel version found for $package" >&2; return 1; }
+        Rscript --vanilla -e '
+            version <- package_version(commandArgs(TRUE))
+            if (version[2L] <= version[1L]) stop("Bioconductor fallback is not newer")
+        ' "$requested" "$available"
+        archive="${package}_${available}.tar.gz"
+        wget --continue "$BIOC_DEVEL/$archive" >&2
+    fi
+    printf '%s\n' "$archive"
+}
+
+gdsfmt_archive=$(download_bioc_source gdsfmt 1.49.8)
+seqarray_archive=$(download_bioc_source SeqArray 1.53.2)
+git clone https://github.com/zhengxwen/GDSAnnotator.git
+R CMD INSTALL -l "$R_LIBS_USER" "$gdsfmt_archive"
+R CMD INSTALL -l "$R_LIBS_USER" "$seqarray_archive"
+R CMD INSTALL -l "$R_LIBS_USER" GDSAnnotator
+```
+
+Confirm that the installed dependency versions meet the required minimums and that the converter is available before downloading hundreds of GB:
+
+```bash
+Rscript --vanilla -e 'library(GDSAnnotator); stopifnot(packageVersion("gdsfmt") >= "1.49.8", packageVersion("SeqArray") >= "1.53.2"); cat("gdsfmt ", as.character(packageVersion("gdsfmt")), "\n", sep=""); cat("SeqArray ", as.character(packageVersion("SeqArray")), "\n", sep=""); stopifnot(exists("seqToGDS_FAVOR_tar", where=asNamespace("GDSAnnotator"), inherits=FALSE))'
+```
+
+Minimum supported versions are `gdsfmt 1.49.8` and `SeqArray 1.53.2`. A higher Bioconductor devel version is acceptable only when the corresponding specified archive is unavailable.
+
+## 4. Download FAVOR archives
+
+Skip this section when the required `.tar.gz` archives have already been downloaded into `$WORKDIR/tar/essential` or `$WORKDIR/tar/full`. In that case, proceed directly to the archive validation command at the end of this section before conversion.
+
+The sources are the published Harvard Dataverse datasets:
+
+- Essential: DOI `10.7910/DVN/1VGTJI`
+- Full: DOI `10.7910/DVN/KFUBKG`
+
+The publisher labels Full archives as `FAVOR.FullDB.ChrN.tar.gz`. The commands deliberately rename them to `FAVOR.Full.ChrN.tar.gz`, which is the naming convention used by the conversion script and the reference output. Essential archives are likewise renamed from the publisher's `chrN.tar.gz` to `FAVOR.Ess.ChrN.tar.gz`.
+
+Run the appropriate script below. `--continue` enables restartable downloads; do not use a partially downloaded archive until `tar -tzf` succeeds.
+
+### Essential dataset
+
+```bash
+cd "$WORKDIR/tar/essential"
+WGET='wget --continue --show-progress --progress=bar:force:noscroll'
+$WGET -O FAVOR.Ess.Chr1.tar.gz  https://dataverse.harvard.edu/api/access/datafile/6170506
+$WGET -O FAVOR.Ess.Chr2.tar.gz  https://dataverse.harvard.edu/api/access/datafile/6170501
+$WGET -O FAVOR.Ess.Chr3.tar.gz  https://dataverse.harvard.edu/api/access/datafile/6170502
+$WGET -O FAVOR.Ess.Chr4.tar.gz  https://dataverse.harvard.edu/api/access/datafile/6170521
+$WGET -O FAVOR.Ess.Chr5.tar.gz  https://dataverse.harvard.edu/api/access/datafile/6170511
+$WGET -O FAVOR.Ess.Chr6.tar.gz  https://dataverse.harvard.edu/api/access/datafile/6170516
+$WGET -O FAVOR.Ess.Chr7.tar.gz  https://dataverse.harvard.edu/api/access/datafile/6170505
+$WGET -O FAVOR.Ess.Chr8.tar.gz  https://dataverse.harvard.edu/api/access/datafile/6170513
+$WGET -O FAVOR.Ess.Chr9.tar.gz  https://dataverse.harvard.edu/api/access/datafile/6165867
+$WGET -O FAVOR.Ess.Chr10.tar.gz https://dataverse.harvard.edu/api/access/datafile/6170507
+$WGET -O FAVOR.Ess.Chr11.tar.gz https://dataverse.harvard.edu/api/access/datafile/6170517
+$WGET -O FAVOR.Ess.Chr12.tar.gz https://dataverse.harvard.edu/api/access/datafile/6170520
+$WGET -O FAVOR.Ess.Chr13.tar.gz https://dataverse.harvard.edu/api/access/datafile/6170503
+$WGET -O FAVOR.Ess.Chr14.tar.gz https://dataverse.harvard.edu/api/access/datafile/6170509
+$WGET -O FAVOR.Ess.Chr15.tar.gz https://dataverse.harvard.edu/api/access/datafile/6170515
+$WGET -O FAVOR.Ess.Chr16.tar.gz https://dataverse.harvard.edu/api/access/datafile/6170518
+$WGET -O FAVOR.Ess.Chr17.tar.gz https://dataverse.harvard.edu/api/access/datafile/6170510
+$WGET -O FAVOR.Ess.Chr18.tar.gz https://dataverse.harvard.edu/api/access/datafile/6170508
+$WGET -O FAVOR.Ess.Chr19.tar.gz https://dataverse.harvard.edu/api/access/datafile/6170514
+$WGET -O FAVOR.Ess.Chr20.tar.gz https://dataverse.harvard.edu/api/access/datafile/6170512
+$WGET -O FAVOR.Ess.Chr21.tar.gz https://dataverse.harvard.edu/api/access/datafile/6170519
+$WGET -O FAVOR.Ess.Chr22.tar.gz https://dataverse.harvard.edu/api/access/datafile/6170504
+```
+
+### Full dataset
+
+```bash
+cd "$WORKDIR/tar/full"
+WGET='wget --continue --show-progress --progress=bar:force:noscroll'
+$WGET -O FAVOR.Full.Chr1.tar.gz  https://dataverse.harvard.edu/api/access/datafile/6380374
+$WGET -O FAVOR.Full.Chr2.tar.gz  https://dataverse.harvard.edu/api/access/datafile/6380471
+$WGET -O FAVOR.Full.Chr3.tar.gz  https://dataverse.harvard.edu/api/access/datafile/6380732
+$WGET -O FAVOR.Full.Chr4.tar.gz  https://dataverse.harvard.edu/api/access/datafile/6381512
+$WGET -O FAVOR.Full.Chr5.tar.gz  https://dataverse.harvard.edu/api/access/datafile/6381457
+$WGET -O FAVOR.Full.Chr6.tar.gz  https://dataverse.harvard.edu/api/access/datafile/6381327
+$WGET -O FAVOR.Full.Chr7.tar.gz  https://dataverse.harvard.edu/api/access/datafile/6384125
+$WGET -O FAVOR.Full.Chr8.tar.gz  https://dataverse.harvard.edu/api/access/datafile/6382573
+$WGET -O FAVOR.Full.Chr9.tar.gz  https://dataverse.harvard.edu/api/access/datafile/6384268
+$WGET -O FAVOR.Full.Chr10.tar.gz https://dataverse.harvard.edu/api/access/datafile/6380273
+$WGET -O FAVOR.Full.Chr11.tar.gz https://dataverse.harvard.edu/api/access/datafile/6384154
+$WGET -O FAVOR.Full.Chr12.tar.gz https://dataverse.harvard.edu/api/access/datafile/6384198
+$WGET -O FAVOR.Full.Chr13.tar.gz https://dataverse.harvard.edu/api/access/datafile/6388366
+$WGET -O FAVOR.Full.Chr14.tar.gz https://dataverse.harvard.edu/api/access/datafile/6388406
+$WGET -O FAVOR.Full.Chr15.tar.gz https://dataverse.harvard.edu/api/access/datafile/6388427
+$WGET -O FAVOR.Full.Chr16.tar.gz https://dataverse.harvard.edu/api/access/datafile/6388551
+$WGET -O FAVOR.Full.Chr17.tar.gz https://dataverse.harvard.edu/api/access/datafile/6388894
+$WGET -O FAVOR.Full.Chr18.tar.gz https://dataverse.harvard.edu/api/access/datafile/6376523
+$WGET -O FAVOR.Full.Chr19.tar.gz https://dataverse.harvard.edu/api/access/datafile/6376522
+$WGET -O FAVOR.Full.Chr20.tar.gz https://dataverse.harvard.edu/api/access/datafile/6376521
+$WGET -O FAVOR.Full.Chr21.tar.gz https://dataverse.harvard.edu/api/access/datafile/6358305
+$WGET -O FAVOR.Full.Chr22.tar.gz https://dataverse.harvard.edu/api/access/datafile/6358299
+```
+
+Validate every archive and require at least one CSV member before conversion:
+
+```bash
+for archive in "$WORKDIR"/tar/{essential,full}/*.tar.gz; do
+  tar -tzf "$archive" >/dev/null || { echo "Corrupt: $archive"; exit 1; }
+  tar -tzf "$archive" | grep -Eiq '\.csv$' || { echo "No CSV member: $archive"; exit 1; }
+done
+```
+
+## 5. Convert one archive to GDS
+
+Create `convert_favor_tar.R` in `$WORKDIR`. The script accepts a dataset name (`essential` or `full`) and a chromosome. It calls `seqToGDS_FAVOR_tar()` directly with the converter defaults used by the reference run: LZMA compression, 32-bit floating-point annotation values, and 100,000 input rows per block.
+
+```r
+#!/usr/bin/env Rscript
+args <- commandArgs(trailingOnly = TRUE)
+if (length(args) != 2L || !args[1L] %in% c("essential", "full")) {
+    stop("Usage: convert_favor_tar.R <essential|full> <chromosome>")
+}
+
+dataset <- args[1L]
+chromosome <- args[2L]
+workdir <- Sys.getenv("WORKDIR")
+if (workdir == "") stop("Set WORKDIR before running this script.")
+
+library(GDSAnnotator)
+
+prefix <- if (dataset == "essential") "FAVOR.Ess" else "FAVOR.Full"
+tar_file <- file.path(workdir, "tar", dataset,
+    sprintf("%s.Chr%s.tar.gz", prefix, chromosome))
+gds_file <- file.path(workdir, "gds", dataset,
+    sprintf("favor_annot_%s_chr%s.gds", dataset, chromosome))
+
+stopifnot(file.exists(tar_file))
+seqToGDS_FAVOR_tar(tar_file, gds_file,
+    compress = "LZMA", use_float32 = TRUE, block_size = 100000L)
+
+q("no")
+```
+
+Run one small chromosome as a smoke test before submitting all chromosomes:
+
+```bash
+# Use the WORKDIR supplied by the user in Section 2.
+export R_LIBS_USER="$WORKDIR/R_libs"
+Rscript --vanilla "$WORKDIR/convert_favor_tar.R" essential 22
+Rscript --vanilla "$WORKDIR/convert_favor_tar.R" full 22
+```
+
+To run all autosomes on one machine sequentially, substitute `essential` or `full`:
+
+```bash
+for chromosome in $(seq 1 22); do
+  Rscript --vanilla "$WORKDIR/convert_favor_tar.R" essential "$chromosome"
+done
+```
+
+## 6. Run all chromosomes with Slurm
+
+To submit chromosome conversions to the cluster concurrently, save this as `submit_favor_gds.slurm`. Submit Essential and Full as separate arrays because their memory requirements differ. The `%22` limit allows up to 22 simultaneous chromosome jobs; lower this limit if the cluster allocation or filesystem cannot support that concurrency.
+
+```bash
+#!/usr/bin/env bash
+#SBATCH --job-name=favor-gds
+#SBATCH --array=1-22%22
+#SBATCH --cpus-per-task=1
+#SBATCH --time=4-00:00:00
+#SBATCH --output=favor-gds-%A_%a.out
+
+set -euo pipefail
+dataset=${1:?Usage: sbatch submit_favor_gds.slurm <essential|full>}
+case "$dataset" in
+  essential) ;;
+  full) ;;
+  *) echo "dataset must be essential or full" >&2; exit 2 ;;
+esac
+
+# Use the WORKDIR supplied by the user in Section 2.
+export R_LIBS_USER="$WORKDIR/R_libs"
+Rscript --vanilla "$WORKDIR/convert_favor_tar.R" "$dataset" "$SLURM_ARRAY_TASK_ID"
+```
+
+Add one of these settings to the Slurm script before each submission:
+
+```bash
+#SBATCH --mem=48G   # Essential
+#SBATCH --mem=64G   # Full
+```
+
+Then submit:
+
+```bash
+sbatch submit_favor_gds.slurm essential
+sbatch submit_favor_gds.slurm full
+```
+
+## 7. Validate generated GDS files and record sizes
+
+Do not regard a job as successful solely because an output file exists. This check opens each GDS, verifies the expected root format and core nodes, then writes a tab-separated manifest with source and output sizes in bytes and GiB.
+
+```r
+#!/usr/bin/env Rscript
+args <- commandArgs(trailingOnly = TRUE)
+if (length(args) != 1L || !args[1L] %in% c("essential", "full")) {
+    stop("Usage: validate_favor_gds.R <essential|full>")
+}
+
+dataset <- args[1L]
+workdir <- Sys.getenv("WORKDIR")
+if (workdir == "") stop("Set WORKDIR before running this script.")
+
+library(gdsfmt)
+prefix <- if (dataset == "essential") "FAVOR.Ess" else "FAVOR.Full"
+result <- lapply(1:22, function(chromosome) {
+    source_file <- file.path(workdir, "tar", dataset,
+        sprintf("%s.Chr%d.tar.gz", prefix, chromosome))
+    gds_file <- file.path(workdir, "gds", dataset,
+        sprintf("favor_annot_%s_chr%d.gds", dataset, chromosome))
+    stopifnot(file.exists(source_file), file.exists(gds_file))
+    gds <- openfn.gds(gds_file, readonly = TRUE)
+    on.exit(closefn.gds(gds), add = TRUE)
+    stopifnot(identical(get.attr.gdsn(gds$root, "FileFormat"), "SEQ_ARRAY"))
+    for (node in c("variant.id", "position", "chromosome", "allele", "annotation/info")) {
+        stopifnot(!is.null(index.gdsn(gds, node, silent = TRUE)))
+    }
+    closefn.gds(gds)
+    data.frame(
+        chromosome = chromosome,
+        source_file = basename(source_file),
+        source_bytes = file.info(source_file)$size,
+        source_GiB = file.info(source_file)$size / 2^30,
+        gds_file = basename(gds_file),
+        gds_bytes = file.info(gds_file)$size,
+        gds_GiB = file.info(gds_file)$size / 2^30
+    )
+})
+
+manifest <- do.call(rbind, result)
+manifest[c("source_GiB", "gds_GiB")] <- lapply(
+    manifest[c("source_GiB", "gds_GiB")], round, digits = 2)
+output_file <- file.path(workdir, sprintf("favor_%s_gds_manifest.tsv", dataset))
+write.table(manifest, output_file, sep = "\t", row.names = FALSE, quote = FALSE)
+print(manifest, row.names = FALSE)
+```
+
+Run the validation once after the corresponding Slurm array completes:
+
+```bash
+Rscript --vanilla "$WORKDIR/validate_favor_gds.R" essential
+Rscript --vanilla "$WORKDIR/validate_favor_gds.R" full
+```
+
+## 8. Reference size manifest from this repository
+
+The following values are observed on the reference machine. Values are byte-exact for the archives and GDS files present there; GiB is $bytes / 2^{30}$ rounded to two decimals. Use them as a sanity check only: a different converter version, compression option, or changed upstream release can change the GDS size.
+
+### Essential
+
+| Chr | Source tar.gz bytes (GiB) | GDS bytes (GiB) | Runtime (hours) |
+| ---: | ---: | ---: | ---: |
+| 1 | 33,455,185,130 (31.16) | 8,528,183,602 (7.94) | 13.08 |
+| 2 | 34,944,196,045 (32.54) | 8,923,599,988 (8.31) | 14.33 |
+| 3 | 28,588,401,832 (26.63) | 7,274,390,209 (6.77) | 10.68 |
+| 4 | 27,116,152,101 (25.25) | 6,863,358,849 (6.39) | 9.64 |
+| 5 | 26,010,750,862 (24.22) | 6,590,119,018 (6.14) | 9.26 |
+| 6 | 24,684,854,590 (22.99) | 6,258,622,175 (5.83) | 8.80 |
+| 7 | 22,808,479,551 (21.24) | 5,781,599,157 (5.38) | 7.69 |
+| 8 | 20,843,493,026 (19.41) | 5,302,212,167 (4.94) | 6.68 |
+| 9 | 17,520,465,315 (16.32) | 4,421,936,170 (4.12) | 5.81 |
+| 10 | 19,335,221,847 (18.01) | 4,914,068,534 (4.58) | 6.76 |
+| 11 | 19,525,231,367 (18.18) | 4,958,654,618 (4.62) | 6.54 |
+| 12 | 19,323,745,439 (18.00) | 4,924,089,489 (4.59) | 6.57 |
+| 13 | 14,075,811,922 (13.11) | 3,554,972,433 (3.31) | 4.30 |
+| 14 | 13,099,603,270 (12.20) | 3,332,824,554 (3.10) | 3.96 |
+| 15 | 12,145,209,238 (11.31) | 3,079,711,294 (2.87) | 3.80 |
+| 16 | 11,978,210,701 (11.16) | 3,069,418,586 (2.86) | 3.66 |
+| 17 | 12,130,489,039 (11.30) | 3,075,063,092 (2.86) | 3.76 |
+| 18 | 11,259,134,540 (10.49) | 2,813,552,040 (2.62) | 3.33 |
+| 19 | 8,583,773,201 (7.99) | 2,194,472,235 (2.04) | 2.68 |
+| 20 | 9,279,872,209 (8.64) | 2,349,668,190 (2.19) | 2.52 |
+| 21 | 5,528,780,471 (5.15) | 1,371,632,206 (1.28) | 1.53 |
+| 22 | 5,574,054,308 (5.19) | 1,400,478,066 (1.30) | 1.62 |
+
+### Full
+
+| Chr | Source tar.gz bytes (GiB) | GDS bytes (GiB) | Runtime (hours) |
+| ---: | ---: | ---: | ---: |
+| 1 | 57,710,331,210 (53.75) | 18,250,887,105 (17.00) | 43.60 |
+| 2 | 59,706,717,954 (55.61) | 18,986,314,925 (17.68) | 50.70 |
+| 3 | 48,635,619,318 (45.30) | 15,412,312,617 (14.35) | 31.57 |
+| 4 | 45,972,391,399 (42.82) | 14,414,556,526 (13.42) | 30.63 |
+| 5 | 44,222,202,866 (41.19) | 13,937,335,760 (12.98) | 27.82 |
+| 6 | 41,979,188,694 (39.10) | 13,275,282,457 (12.36) | 27.28 |
+| 7 | 38,754,073,534 (36.09) | 12,230,257,005 (11.39) | 24.91 |
+| 8 | 35,494,624,607 (33.06) | 11,227,341,203 (10.46) | 22.35 |
+| 9 | 30,028,518,982 (27.97) | 9,454,590,598 (8.81) | 16.48 |
+| 10 | 33,248,046,731 (30.96) | 10,582,939,837 (9.86) | 18.30 |
+| 11 | 33,426,700,634 (31.13) | 10,611,300,368 (9.88) | 19.57 |
+| 12 | 33,146,361,705 (30.87) | 10,591,459,929 (9.86) | 19.21 |
+| 13 | 24,076,200,156 (22.42) | 7,583,039,085 (7.06) | 12.09 |
+| 14 | 22,461,094,712 (20.92) | 7,156,528,232 (6.67) | 11.92 |
+| 15 | 20,825,847,270 (19.40) | 6,633,388,952 (6.18) | 10.71 |
+| 16 | 20,582,259,584 (19.17) | 6,584,336,458 (6.13) | 10.65 |
+| 17 | 20,825,979,283 (19.40) | 6,654,546,786 (6.20) | 11.14 |
+| 18 | 18,977,335,522 (17.67) | 5,800,440,505 (5.40) | 9.34 |
+| 19 | 14,730,451,541 (13.72) | 4,732,903,776 (4.41) | 7.65 |
+| 20 | 15,960,123,171 (14.86) | 5,060,295,643 (4.71) | 7.61 |
+| 21 | 9,483,076,583 (8.83) | 2,953,006,586 (2.75) | 4.17 |
+| 22 | 9,565,974,525 (8.91) | 3,030,848,837 (2.82) | 4.41 |
+
+## 9. Enhance Full GDS files with rsID
+
+The Full GDS files have an empty `annotation/id`; the matching Essential GDS files contain rsID values. Run the following script only after both Essential and Full conversions have completed successfully. It transfers `annotation/id` from each Essential GDS to its matching Full GDS.
+
+A complete read-only comparison of the September 2026 reference files found that, for every chromosome from 1 through 22:
+
+- Essential and Full have the same variant count.
+- Their `chromosome` and `position` vectors are in the same order.
+- Their complete `chromosome + position + allele` key sets are identical in both directions, with no duplicate keys.
+- Alleles within the same position are frequently ordered differently. Therefore, rsID must **not** be copied by row number or `variant.id`.
+
+The script reads the complete `position` and `allele` vectors, maps each Full key to the matching Essential key with `match()`, and places rsID in Full order. It expects GDS files under `$WORKDIR/gds/essential` and `$WORKDIR/gds/full`, matching the output directories used in Steps 2 and 5.
+
+Create `enhance_full_rsid.R` in `$WORKDIR`:
+
+```r
+#!/usr/bin/env Rscript
+
+args <- commandArgs(trailingOnly = TRUE)
+if (length(args) != 1L) {
+    stop("Usage: enhance_full_rsid.R <chromosome>")
+}
+
+chromosome <- as.integer(args[1L])
+if (is.na(chromosome) || chromosome < 1L || chromosome > 22L) {
+    stop("Chromosome must be an integer from 1 to 22.")
+}
+
+workdir <- Sys.getenv("WORKDIR")
+if (workdir == "") stop("Set WORKDIR before running this script.")
+
+essential_file <- file.path(workdir, "gds", "essential",
+    sprintf("favor_annot_essential_chr%d.gds", chromosome))
+full_file <- file.path(workdir, "gds", "full",
+    sprintf("favor_annot_full_chr%d.gds", chromosome))
+stopifnot(file.exists(essential_file), file.exists(full_file))
+
+library(gdsfmt)
+library(SeqArray)
+
+essential <- NULL
+full <- NULL
+on.exit({
+    if (!is.null(essential)) try(seqClose(essential), silent = TRUE)
+    if (!is.null(full)) try(seqClose(full), silent = TRUE)
+}, add = TRUE)
+
+essential <- seqOpen(essential_file, readonly = TRUE)
+full <- seqOpen(full_file, readonly = TRUE)
+
+essential_count <- objdesp.gdsn(index.gdsn(essential, "variant.id"))$dim
+full_count <- objdesp.gdsn(index.gdsn(full, "variant.id"))$dim
+if (essential_count != full_count) {
+    stop(sprintf("Chr%d variant-count mismatch: Essential=%d, Full=%d",
+        chromosome, essential_count, full_count))
+}
+
+essential_position <- seqGetData(essential, "position")
+full_position <- seqGetData(full, "position")
+essential_allele <- seqGetData(essential, "allele")
+full_allele <- seqGetData(full, "allele")
+essential_key <- paste(essential_position, essential_allele, sep = ":")
+full_key <- paste(full_position, full_allele, sep = ":")
+
+if (anyDuplicated(essential_key) || anyDuplicated(full_key)) {
+    stop(sprintf("Chr%d contains a duplicate position/allele key", chromosome))
+}
+
+essential_index <- match(full_key, essential_key)
+if (anyNA(essential_index) || anyDuplicated(essential_index)) {
+    stop(sprintf("Chr%d position/allele key sets differ", chromosome))
+}
+
+essential_rsid <- seqGetData(essential, "annotation/id")
+mapped_rsid <- essential_rsid[essential_index]
+
+seqClose(essential)
+essential <- NULL
+seqClose(full)
+full <- NULL
+
+full <- seqOpen(full_file, readonly = FALSE)
+seqAddValue(full, "annotation/id", mapped_rsid, replace = TRUE)
+seqClose(full)
+full <- NULL
+cleanup.gds(full_file)
+
+message(sprintf("Chr%d: annotation/id added to %s", chromosome, full_file))
+```
+
+Smoke-test chromosome 22 first, then run all autosomes sequentially:
+
+```bash
+export WORKDIR="<absolute FAVOR directory supplied by the user>"
+Rscript --vanilla "$WORKDIR/enhance_full_rsid.R" 22
+
+for chromosome in $(seq 1 22); do
+  Rscript --vanilla "$WORKDIR/enhance_full_rsid.R" "$chromosome"
+done
+```
+
+The script updates a Full GDS in place. Keep a backup or filesystem snapshot of `$WORKDIR/gds/full` if the pre-enhancement files must be preserved. Because it reads complete vectors and creates two composite key vectors, run one chromosome at a time on a high-memory node.
+
+## 10. Important behavior and troubleshooting
+
+- The output is a SeqArray-format GDS with `FileFormat = "SEQ_ARRAY"`, reference `GRCh38`, and FAVOR fields under `annotation/info`. It is not an annotated genotype GDS because FAVOR supplies annotations only.
+- `seqToGDS_FAVOR_tar()` finds and orders all `.csv` members in the tar archive. Do not pass a manually extracted CSV to this workflow.
+- The converter defaults to LZMA compression and 32-bit float values. Changing `compress`, `use_float32`, or `block_size` changes size, runtime, and potentially numerical storage precision; do not compare such output byte-for-byte with this manifest.
+- A tar archive with a valid gzip stream but no `.csv` member will fail conversion. The archive validation command catches this before a costly job is submitted.
+- If `R CMD INSTALL` fails at `SeqArray`, confirm that the custom `gdsfmt 1.49.8` was installed into the same `R_LIBS_USER` and that `Rscript -e 'library(gdsfmt)'` succeeds in the job environment.
+- To preserve provenance, retain the two generated manifests, Slurm stdout/stderr, the three package sources, and the exact GDSAnnotator revision used for conversion.
