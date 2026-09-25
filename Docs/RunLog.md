@@ -40,5 +40,5 @@ Plan: `Docs/Plan/plan.txt`. All commands: `source Scripts/env.sh` first.
 3. rsID: `sbatch --array=22 Scripts/enhance_full_rsid.slurm`, then 1-21 (optionally snapshot `Data/gds/full` first).
 
 ## Dataverse upload (pending)
-- API token stored in `Secrets/dataverse_api_token` (mode 600, dir 700, git-ignored). Never commit or echo it.
+- API token stored in `Docs/Secret/dataverse_api_token` (mode 600, dir 700, git-ignored). Never commit or echo it.
 - Target dataset/collection: to be confirmed by user before upload.
