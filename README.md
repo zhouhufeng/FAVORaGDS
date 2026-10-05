@@ -34,5 +34,22 @@ gdsfmt 1.49.8, SeqArray 1.53.3, GDSAnnotator `f5e5436`, R 4.6.1 / Bioconductor 3
 | Essential | 370.5 GiB | 94.1 GiB | 14.3 h (chr2) |
 | Full | 633.1 GiB | 200.4 GiB | 50.7 h (chr2) |
 
-## Status
-Run in progress (started 2026-09-25). Results and the Dataverse link will be added here once complete.
+## Status (2026-10-04)
+| Stage | State |
+| --- | --- |
+| Download + archive checks, chr1-22 | done |
+| Convert to GDS (Essential 95G, Full 201G) | done |
+| Validate before rsID | done 2026-09-30 (`Docs/Logs/favor_*_gds_manifest_pre_rsid.tsv`) |
+| Backup Full -> `Data/gds/full_pre_rsid` | copied; byte compare running |
+| Add rsID to Full (chr22 smoke test, then chr1-21) | queued behind the compare |
+| Validate after rsID | queued |
+| Review with maintainer | pending |
+| Dataverse upload | blocked on collection storage quota |
+
+## Plan
+1. Finish the chained Slurm jobs: backup compare -> rsID chr22 -> rsID chr1-21 -> validate after rsID. Job IDs are in `Docs/RunLog.md`.
+2. Review manifests before and after rsID (sizes, variant counts, Essential vs Full, rsID filled in) against `Docs/Plan/plan.txt` section 8.
+3. Request a storage quota increase for the `favor` Dataverse collection (2.5 TiB quota, 3.0 TiB used; GDS adds about 296 GiB).
+4. After approval, upload GDS as a new version of the existing datasets, next to the `SQL/` and `CSV/` folders:
+   Essential -> [10.7910/DVN/1VGTJI](https://doi.org/10.7910/DVN/1VGTJI), Full -> [10.7910/DVN/KFUBKG](https://doi.org/10.7910/DVN/KFUBKG).
+5. Remove `Data/gds/full_pre_rsid` once the upload is verified.
