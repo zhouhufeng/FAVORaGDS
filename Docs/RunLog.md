@@ -49,11 +49,12 @@ Plan: `Docs/Plan/plan.txt`. All commands: `source Scripts/env.sh` first.
 | 2026-10-04 | 50548668 | rsID smoke test chr22, sapphire 400G (afterok 50548667) |
 | 2026-10-04 | 50548681 | rsID chr1-21 %4 (afterok 50548668) |
 | 2026-10-04 | 50548683 | validate both, tag post_rsid, xlin, mail on END/FAIL (afterok 50548681) |
+| 2026-10-05 | 50548667-50548683 | chain COMPLETED: cmp 22 files identical; rsID chr1-22 OK (Full = Essential non-empty rsID counts); validation post_rsid OK |
 
 ## Remaining steps
 Whole pipeline is chained in Slurm; any failure cancels downstream jobs (--kill-on-invalid-dep). Check with
 `sacct -u $USER -S 2026-10-04 --name=favor-backup-cmp,favor-rsid,favor-validate -X` (sacct rejects date ranges that are too wide).
-1. Running/queued: 50548667 backup compare -> 50548668 rsID chr22 -> 50548681 rsID chr1-21 -> 50548683 validate post_rsid.
+1. Done 2026-10-05: backup compare, rsID chr1-22, validate post_rsid. Pre-upload summary: `Docs/Logs/pre-upload.md`.
 2. Review with user: manifests `Docs/Logs/favor_*_gds_manifest_{pre,post}_rsid.tsv` vs plan section 8; logs in Docs/Logs.
 3. Ask Harvard Dataverse support for a quota increase on collection `favor` (see below).
 4. Only after user approval: upload to Dataverse (targets below). Then delete Data/gds/full_pre_rsid if not needed.
@@ -62,6 +63,6 @@ Whole pipeline is chained in Slurm; any failure cancels downstream jobs (--kill-
 - API token stored in `Docs/Secret/dataverse_api_token` (mode 600, dir 700, git-ignored). Never commit or echo it.
 - Target (user decision 2026-10-04): add GDS as a new version of the existing datasets, alongside the SQL/ and CSV/ folders:
   Essential -> doi:10.7910/DVN/1VGTJI, Full -> doi:10.7910/DVN/KFUBKG (both in collection `favor`, last versions v1.0 2022).
-- BLOCKER (checked 2026-10-04): collection `favor` quota is 2,748,779,069,440 B (2.5 TiB), usage 3,299,305,633,466 B (3.0 TiB);
+- BLOCKER (checked 2026-10-04, unchanged 2026-10-16): collection `favor` quota is 2,748,779,069,440 B (2.5 TiB), usage 3,299,305,633,466 B (3.0 TiB);
   remaining quota 0. GDS adds ~296 GiB (95G Essential + 201G Full). Need a quota increase from Harvard Dataverse support
   (to >= ~3.7 TB) before uploading. Files up to ~18 GiB -> use direct S3 upload (uploadurls API / DVUploader).
