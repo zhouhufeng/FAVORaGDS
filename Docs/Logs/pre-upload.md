@@ -83,7 +83,58 @@ Suggested request: 4 TB (~3.64 TiB) for headroom.
 
 Targets (new versions alongside SQL/ and CSV/): Essential -> doi:10.7910/DVN/1VGTJI, Full -> doi:10.7910/DVN/KFUBKG.
 
+## Current usage of collection `favor` (checked 2026-10-16)
+Sizes in GB (10^9 bytes); dataset totals sum exactly to the collection usage (3,299,305,633,466 B).
+
+| Dataset | Folder / content | Files | GB | Share |
+| --- | --- | --- | --- | --- |
+| FAVOR Full Database (doi:10.7910/DVN/KFUBKG, v1.0 2022-07) | SQL/ `.sql.gz` | 22 | 712.3 | 21.6% |
+| | CSV/ `.tar.gz` | 22 | 679.8 | 20.6% |
+| FAVOR Essential Database (aGDS Format) (doi:10.7910/DVN/GR7D5A, v1.0 2022-09), sub-collection `favoragds` | `.gds` | 22 | 951.5 | 28.8% |
+| FAVOR Essential Database (doi:10.7910/DVN/1VGTJI, v1.0 2022-04) | CSV/ `.tar.gz` | 22 | 397.8 | 12.1% |
+| | SQL/ `.sql.gz` | 22 | 372.1 | 11.3% |
+| FAVOR Visualization (doi:10.7910/DVN/PYWWRV, v3.0 2025-04) | cCREsMerged `.bw` (87.5) + ATAC-seq `.bigWig`, 7 tissues | 65 | 185.8 | 5.6% |
+| Functional Annotation Visualization Extended (doi:10.7910/DVN/AMDYBI, v6.1 2025-04) | Epimap `.bed.gz` + `.tbi` | 4 | 0.02 | ~0% |
+| **Total** | | | **3,299.3** | 100% |
+
+Notes:
+- GR7D5A is a 2022 legacy Essential aGDS, 951.5 GB, ~10x the new Essential GDS (94 GiB / 101 GB).
+  Account @hzhou1 can read it but is "not permitted" on its storage endpoints: owned/administered by someone else.
+- Open decision: add new GDS to 1VGTJI/KFUBKG (current plan) or publish Essential as a new version of GR7D5A.
+- Published files generally cannot be deleted by users and deaccessioning does not free quota;
+  removing the legacy aGDS would need Dataverse support.
+
 ## Before upload
 1. User review of this summary and the post_rsid manifests (required before any Dataverse upload).
 2. Quota increase from Harvard Dataverse support.
 3. Upload via direct S3; afterwards delete `Data/gds/full_pre_rsid` if not needed.
+
+## Draft quota request email (not sent)
+To: support@dataverse.harvard.edu
+Subject: Storage quota increase request for collection "favor"
+
+> Hello Harvard Dataverse team,
+>
+> I'd like to ask for a storage quota increase for the Dataverse collection **favor** (FAVOR: Functional Annotation of Variants Online Resource).
+>
+> We have converted the FAVOR variant annotation database into GDS format. GDS is a compressed, random-access format used in R/Bioconductor (SeqArray/gdsfmt) and in the STAAR/FAVORannotator pipelines. We'd like to add these files as new versions of our two existing datasets, alongside the SQL/ and CSV/ files already there:
+>
+> - FAVOR Essential: doi:10.7910/DVN/1VGTJI (adds 22 GDS files, 94.0 GiB)
+> - FAVOR Full: doi:10.7910/DVN/KFUBKG (adds 22 GDS files, 205.0 GiB)
+>
+> Current status, from the native API on 2026-10-16:
+> - Quota: 2,748,779,069,440 bytes (2.5 TiB)
+> - Current usage: 3,299,305,633,466 bytes (3.0 TiB)
+> - New files: 321,069,080,501 bytes (299 GiB)
+> - Usage after upload: about 3.62 TB
+>
+> Could you raise the collection quota to **4 TB**? That leaves room for metadata and small future updates. The largest single file is about 18 GiB, so we plan to use direct S3 upload (the uploadurls API or DVUploader). Please let us know if that should be enabled for these datasets or if you'd recommend a different approach.
+>
+> The new files are much more storage-efficient than what we published before. Our 2022 dataset "FAVOR Essential Database (aGDS Format)" (doi:10.7910/DVN/GR7D5A, sub-collection favoragds) uses 951.5 GB. The new Essential GDS holds the same variants in about 101 GB, because it is LZMA-compressed internally. The new files are also about 3.4x smaller than the existing tar.gz archives and give users a much more efficient way to query the annotations by region. Once the new version is published, could the legacy aGDS files in GR7D5A be removed or archived to free that 951.5 GB? If so, the net increase we need would be much smaller.
+>
+> Thank you,
+> Hufeng Zhou
+> Harvard T.H. Chan School of Public Health
+> hzhou@hsph.harvard.edu
+
+Before sending: consider cc'ing the collection owner/PI (and the GR7D5A owner) since support may need their approval.
