@@ -100,9 +100,8 @@ Sizes in GB (10^9 bytes); dataset totals sum exactly to the collection usage (3,
 Notes:
 - GR7D5A is a 2022 legacy Essential aGDS, 951.5 GB, ~10x the new Essential GDS (94 GiB / 101 GB).
   Account @hzhou1 can read it but is "not permitted" on its storage endpoints: owned/administered by someone else.
-- Open decision: add new GDS to 1VGTJI/KFUBKG (current plan) or publish Essential as a new version of GR7D5A.
-- Published files generally cannot be deleted by users and deaccessioning does not free quota;
-  removing the legacy aGDS would need Dataverse support.
+- Decision (user, 2026-10-16): keep separate. New GDS goes to 1VGTJI/KFUBKG; GR7D5A is left unchanged.
+- Published files generally cannot be deleted by users and deaccessioning does not free quota.
 
 ## Before upload
 1. User review of this summary and the post_rsid manifests (required before any Dataverse upload).
@@ -130,11 +129,11 @@ Subject: Storage quota increase request for collection "favor"
 >
 > Could you raise the collection quota to **4 TB**? That leaves room for metadata and small future updates. The largest single file is about 18 GiB, so we plan to use direct S3 upload (the uploadurls API or DVUploader). Please let us know if that should be enabled for these datasets or if you'd recommend a different approach.
 >
-> The new files are much more storage-efficient than what we published before. Our 2022 dataset "FAVOR Essential Database (aGDS Format)" (doi:10.7910/DVN/GR7D5A, sub-collection favoragds) uses 951.5 GB. The new Essential GDS holds the same variants in about 101 GB, because it is LZMA-compressed internally. The new files are also about 3.4x smaller than the existing tar.gz archives and give users a much more efficient way to query the annotations by region. Once the new version is published, could the legacy aGDS files in GR7D5A be removed or archived to free that 951.5 GB? If so, the net increase we need would be much smaller.
+> The new files are much more storage-efficient than what we published before. For comparison, our 2022 dataset "FAVOR Essential Database (aGDS Format)" (doi:10.7910/DVN/GR7D5A) uses 951.5 GB, while the new Essential GDS holds the same variants in about 101 GB, because it is LZMA-compressed internally. The new files are also about 3.4x smaller than the existing tar.gz archives and give users a much more efficient way to query the annotations by region.
 >
 > Thank you,
 > Hufeng Zhou
 > Harvard T.H. Chan School of Public Health
 > hzhou@hsph.harvard.edu
 
-Before sending: consider cc'ing the collection owner/PI (and the GR7D5A owner) since support may need their approval.
+Before sending: consider cc'ing the collection owner/PI since support may need their approval.
